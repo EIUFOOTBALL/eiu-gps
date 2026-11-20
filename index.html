@@ -369,7 +369,7 @@ function teamKPIs(key, G = 'All', noPL = false) {
   const a = stat(day, gg), p = prev ? stat(prev, gg) : {};
   const k = (label, v, unit, pv, f) => `<div class="kpi"><div class="eyebrow">${label}</div><div class="v">${f(v)}<small>${unit}</small></div><div class="d">${prev && v != null && pv ? `<strong>${Math.round(v / pv * 100)}%</strong> of ${prev.slice(0, 5)}` : '&nbsp;'}</div></div>`;
   let groups = ['Skill', 'Mid', 'Big'].map(g => { const s = stat(day, g); return noPL ? [g, s.n, fmt1(s.ts), fmt0(s.dist), fmt0(s.hsy)] : [g, s.n, fmt1(s.ts), fmt0(s.dist), fmt1(s.pl), fmt0(s.hsy)]; });
-  return `<div class="kpis${noPL ? ' kpi3' : ''}">${k(gl + ' avg top speed', a.ts, 'mph', p.ts, fmt1)}${k(gl + ' avg distance', a.dist, 'yds', p.dist, fmt0)}${noPL ? '' : k(gl + ' avg player load', a.pl, '', p.pl, fmt1)}${k(gl + ' avg high-speed yds', a.hsy, 'yds', p.hsy, fmt0)}</div>${gg ? '' : `
+  return `<div class="kpis">${k(gl + ' avg top speed', a.ts, 'mph', p.ts, fmt1)}${k(gl + ' avg distance', a.dist, 'yds', p.dist, fmt0)}${k(gl + ' avg player load', a.pl, '', p.pl, fmt1)}${k(gl + ' avg high-speed yds', a.hsy, 'yds', p.hsy, fmt0)}</div>${gg ? '' : `
   <section class="card"><div class="ch"><h2>Position group averages</h2><div class="sub">${a.n} players with GPS on ${day.slice(0, 5)}. Out-for-season players are left out.</div></div>
   <div class="tw"><table><thead><tr><th class="l">Group</th><th>Players</th><th>Top speed</th><th>Distance</th>${noPL ? '' : '<th>Player Load</th>'}<th>HSY</th></tr></thead><tbody>
   ${groups.map(r => `<tr><td class="l"><strong>${r[0]}s</strong></td>${r.slice(1).map(x => `<td>${x}</td>`).join('')}</tr>`).join('')}</tbody></table></div></section>`}`;
