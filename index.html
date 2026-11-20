@@ -700,7 +700,7 @@ function viewSpeed90() {
     const last = hits[0] ? hits[0][C.Date] : null;
     const days = last ? Math.round((wkEnd - new Date(last)) / 864e5) : null;
     return { n, g: D.players[n].g, mx, best, pct: best ? best / mx * 100 : null, last, days, sessions: mine.length };
-  }).filter(Boolean).sort((a, b) => (a.pct ?? -1) - (b.pct ?? -1));
+  }).filter(r => r && r.best != null).sort((a, b) => a.pct - b.pct);  // only players who wore GPS that week (Noam 2026-11-20)
   const withGps = rows.filter(r => r.best != null);
   const hit = withGps.filter(r => r.pct >= 90).length;
   const zone = p => p == null ? 'gray' : p >= 90 ? 'green' : p >= 85 ? 'yel2' : 'red';
