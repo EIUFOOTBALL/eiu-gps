@@ -173,6 +173,7 @@ ol.leaders b { font-family: var(--display); font-size: 22px; font-variant-numeri
 .hb.sp { grid-template-columns: minmax(0, 150px) minmax(0, 1fr) 40px minmax(0, 260px); }
 @media (max-width: 640px) { .hb.sp { grid-template-columns: minmax(0, 110px) minmax(0, 1fr) 36px; } .hb.sp .sx { grid-column: 2 / -1; margin-top: -2px; } }
 .hb .sx { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.prb { color: var(--f-green-fg); }
 .hb .m90 { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--fg); }
 .hb.sp { padding: 2px 0; }
 .hb .hn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
@@ -291,7 +292,20 @@ function prep() {
   LOG.forEach(r => { ds.add(r[C.Date]); if (String(r[C.Session]).startsWith('GAME')) games.add(r[C.Date]); });
   DATES = [...ds].sort((a, b) => new Date(b) - new Date(a));
   DAY = D.coach[0].key;
+  // New top speeds (Noam 2026-11-20): a session faster than his max raises it, if it's no more than 5% above
+  // (bigger jumps are treated as GPS glitches, e.g. Neal 65.31, Henry 22.75, Vecchiarelli 26.11).
+  const asc = LOG.slice().sort((a, b) => new Date(a[C.Date]) - new Date(b[C.Date]));
+  for (const n of Object.keys(D.players)) {
+    const P = D.players[n]; let cur = P.max || null; P.prs = [];
+    for (const r of asc) {
+      if (r[C.Athlete] !== n) continue; const v = num(r[C['Top Speed']]); if (v == null) continue;
+      if (cur == null) { cur = v; continue; }
+      if (v > cur && v <= cur * PR_LIMIT) { P.prs.push({ date: r[C.Date], from: cur, to: v }); cur = v; }
+    }
+    P.sheetMax = P.max; P.max = cur; P.p90 = cur ? Math.round(cur * 90) / 100 : null;
+  }
 }
+const PR_LIMIT = 1.05;
 const dkey = d => d.slice(0, 5);
 const isOff = n => D.players[n] && D.players[n].off;
 const num = v => (v === null || v === undefined || v === '') ? null : +v;
@@ -564,7 +578,7 @@ function viewReport() {
   const trends = n > 1 ? `<section class="card"><div class="ch"><h2>This week so far</h2><div class="sub">Team and position group averages for each GPS day of ${esc(opp)} week, through ${day.slice(0, 5)}.</div></div>
     <div class="chartleg">${SER.map(s => `<span><i style="background:${s.c}"></i>${s.n}</span>`).join('')}</div>
     <div class="trendgrid">${RM.map(m => `<div class="tchart"><div class="eyebrow">${m[1]}</div>${lineChart(upto, SER, m[0], m[3])}</div>`).join('')}</div></section>` : '';
-  const leaders = all.filter(r => num(r[C['Top Speed']]) != null && (!D.players[r[C.Athlete]] || !D.players[r[C.Athlete]].max || num(r[C['Top Speed']]) <= D.players[r[C.Athlete]].max * 1.02))
+  const leaders = all.filter(r => num(r[C['Top Speed']]) != null && (!D.players[r[C.Athlete]] || !D.players[r[C.Athlete]].max || num(r[C['Top Speed']]) <= D.players[r[C.Athlete]].max + 1e-9))
     .sort((a, b) => num(b[C['Top Speed']]) - num(a[C['Top Speed']])).slice(0, 5);
   const lead = `<section class="card"><div class="ch"><h2>Top speed leaders</h2><div class="sub">Fastest 5 on ${day.slice(0, 5)}. GPS glitches above a player's all-time best are left out.</div></div>
     <ol class="leaders">${leaders.map(r => `<li><span><a class="pl" href="#players" data-player="${esc(r[C.Athlete])}">${esc(r[C.Athlete])}</a> <small>${esc(r[C.Group])}</small></span><b>${fmt1(num(r[C['Top Speed']]))}<small> mph</small></b></li>`).join('')}</ol></section>`;
@@ -681,7 +695,7 @@ function viewGraphs() {
 let SWEEK = null, SGROUP = 'All';
 function maxSpeed(n) {
   const m = D.players[n] && D.players[n].max;
-  if (m) return m;
+  if (m) return m;  // live max (raised by new top speeds)
   const v = LOG.filter(r => r[C.Athlete] === n).map(r => num(r[C['Top Speed']])).filter(v => v != null);
   return v.length ? Math.max(...v) : null;
 }
@@ -693,13 +707,14 @@ function viewSpeed90() {
   const names = Object.keys(D.players).filter(n => !isOff(n) && n !== 'Jeremiah Salem' && ['Skill', 'Mid', 'Big'].includes(D.players[n].g) && (SGROUP === 'All' || D.players[n].g === SGROUP));
   const rows = names.map(n => {
     const mx = maxSpeed(n); if (!mx) return null;
-    const ok = r => { const v = num(r[C['Top Speed']]); return v != null && v <= mx * 1.02; };  // GPS glitches above his best are left out
+    const ok = r => { const v = num(r[C['Top Speed']]); return v != null && v <= mx + 1e-9; };  // GPS glitches above his best are left out
     const mine = wkRows.filter(r => r[C.Athlete] === n && ok(r));
     const best = mine.length ? Math.max(...mine.map(r => num(r[C['Top Speed']]))) : null;
     const hits = LOG.filter(r => r[C.Athlete] === n && ok(r) && new Date(r[C.Date]) <= wkEnd && num(r[C['Top Speed']]) >= mx * 0.9).sort((a, b) => new Date(b[C.Date]) - new Date(a[C.Date]));
     const last = hits[0] ? hits[0][C.Date] : null;
     const days = last ? Math.round((wkEnd - new Date(last)) / 864e5) : null;
-    return { n, g: D.players[n].g, mx, best, pct: best ? best / mx * 100 : null, last, days, sessions: mine.length };
+    const pr = (D.players[n].prs || []).filter(p => wkRows.some(r => r[C.Date] === p.date && r[C.Athlete] === n)).pop();
+    return { pr, n, g: D.players[n].g, mx, best, pct: best ? best / mx * 100 : null, last, days, sessions: mine.length };
   }).filter(r => r && r.best != null).sort((a, b) => a.pct - b.pct);  // only players who wore GPS that week (Noam 2026-11-20)
   const withGps = rows.filter(r => r.best != null);
   const hit = withGps.filter(r => r.pct >= 90).length;
@@ -709,7 +724,7 @@ function viewSpeed90() {
   const bars = rows.map(r => `<a class="hb sp" href="#players" data-player="${esc(r.n)}"><span class="hn">${esc(r.n)}</span>
     <span class="ht">${r.pct != null ? `<i style="width:${scale(r.pct)}%;background:var(--z-${zone(r.pct)})"></i>` : ''}<span class="m90" style="left:${scale(90)}%"></span></span>
     <b>${r.pct != null ? Math.floor(r.pct) + '%' : '–'}</b>
-    <span class="sx">${r.best != null ? `${fmt1(r.best)} of ${fmt1(r.mx)} mph` : 'No GPS this week'}${r.pct != null && r.pct >= 90 ? '' : r.last ? ` · last hit 90% ${r.last.slice(0, 5)} (${r.days} days)` : ' · no 90% this season'}</span></a>`).join('');
+    <span class="sx">${r.pr ? `<strong class="prb">★ New top speed ${r.pr.date.slice(0, 5)} (was ${fmt1(r.pr.from)})</strong> · ` : ''}${r.best != null ? `${fmt1(r.best)} of ${fmt1(r.mx)} mph` : 'No GPS this week'}${r.pct != null && r.pct >= 90 ? '' : r.last ? ` · last hit 90% ${r.last.slice(0, 5)} (${r.days} days)` : ' · no 90% this season'}</span></a>`).join('');
   const notHit = withGps.filter(r => r.pct < 90).length;
   return `<div class="toolbar"><label for="swk">Week</label><select id="swk">${wkOrder.map(w => `<option ${w === SWEEK ? 'selected' : ''}>${esc(w)}</option>`).join('')}</select></div>
   <div class="toolbar"><label>Show</label>${seg('sgroup', SGROUP, [['Big', 'Bigs'], ['Mid', 'Mids'], ['Skill', 'Skills'], ['All', 'Whole team']])}</div>
@@ -718,7 +733,7 @@ function viewSpeed90() {
     <div class="kpi"><div class="eyebrow">Still under 90%</div><div class="v ${notHit ? 'up' : ''}">${notHit}</div><div class="d">${wkRows.some(r => String(r[C.Session]).startsWith('GAME')) ? 'week finished' : 'week still in progress'}</div></div>
     <div class="kpi"><div class="eyebrow">Team avg % of max</div><div class="v">${withGps.length ? Math.round(withGps.reduce((a, r) => a + r.pct, 0) / withGps.length) : '–'}<small>%</small></div><div class="d">fastest session this week vs his max</div></div>
   </div>
-  <section class="card"><div class="ch"><h2>90% of max speed: ${esc(SWEEK)}</h2><div class="sub">Each player's fastest session that week as a % of his max speed. The black line marks 90%. Green = hit 90%, yellow = 85-89%, red = under 85%. Lowest first. QB Salem and out-for-season players are left out. Tap a name to open his page.</div></div>
+  <section class="card"><div class="ch"><h2>90% of max speed: ${esc(SWEEK)}</h2><div class="sub">Each player's fastest session that week as a % of his max speed. Max speed goes up when he sets a new top speed (★); jumps of more than 5% over his best are treated as GPS glitches. The black line marks 90%. Green = hit 90%, yellow = 85-89%, red = under 85%. Lowest first. QB Salem and out-for-season players are left out. Tap a name to open his page.</div></div>
     <div class="chartbox"><div class="hbars">${bars}<div class="hb sp hax"><span class="hn"></span><span class="ht">${[50, 60, 70, 80, 90, 100].map(v => `<em style="left:${scale(v)}%">${v}%</em>`).join('')}</span><b></b><span class="sx"></span></div></div></div></section>`;
 }
 
@@ -766,7 +781,7 @@ function viewPlayers() {
   const info = D.players[PLAYER] || {};
   const rows = LOG.filter(r => r[C.Athlete] === PLAYER).sort((a, b) => new Date(a[C.Date]) - new Date(b[C.Date]));
   const last = rows[rows.length - 1];
-  const best = Math.max(...rows.map(r => num(r[C['Top Speed']]) || 0).filter(v => !info.max || v <= info.max * 1.02));
+  const best = Math.max(...rows.map(r => num(r[C['Top Speed']]) || 0).filter(v => !info.max || v <= info.max + 1e-9));
   // weeks
   const wk = new Map();
   rows.forEach(r => { const k = r[C.Week]; if (!wk.has(k)) wk.set(k, []); wk.get(k).push(r); });
@@ -778,7 +793,7 @@ function viewPlayers() {
   const mdef = METRICS.find(m => m[0] === METRIC) || METRICS[0];
   const tiles = [
     ['Group', esc(info.g || '–'), ''],
-    ['Max speed', info.max ? fmt1(info.max) : '–', `90% target ${info.p90 ? fmt1(info.p90) : '–'} mph`],
+    ['Max speed', info.max ? fmt1(info.max) : '–', `90% target ${info.p90 ? fmt1(info.p90) : '–'} mph${info.prs && info.prs.length ? ` · <strong class="prb">★ new best ${info.prs[info.prs.length - 1].date.slice(0, 5)}</strong>` : ''}`],
     ['Season GPS best', fmt1(best), 'mph (glitches left out)'],
     ['Last session', last ? esc(String(last[C.Date]).slice(0, 5)) : '–', last ? `${fmt0(num(last[C.Distance]))} yds · load score ${last[C['Load score']] ?? '–'}` : ''],
     ['HSY this week', fmt0(thisHSY), hsyNeed ? (thisHSY >= 30 ? 'Met the 30-yard minimum' : `<span class="up">Needs ${fmt0(30 - thisHSY)} more for 30</span>`) : (PLAYER === 'Jeremiah Salem' ? 'QB: no HSY minimum' : 'Bigs: no HSY minimum')],
