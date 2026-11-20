@@ -170,6 +170,11 @@ ol.leaders b { font-family: var(--display); font-size: 22px; font-variant-numeri
 .hbars { display: grid; gap: 3px; }
 .hb { display: grid; grid-template-columns: minmax(0, 150px) minmax(0, 1fr) 34px; gap: 8px; align-items: center; text-decoration: none; color: var(--fg); font-size: 13px; }
 @media (max-width: 520px) { .hb { grid-template-columns: minmax(0, 110px) minmax(0, 1fr) 30px; font-size: 12px; } }
+.hb.sp { grid-template-columns: minmax(0, 150px) minmax(0, 1fr) 40px minmax(0, 260px); }
+@media (max-width: 640px) { .hb.sp { grid-template-columns: minmax(0, 110px) minmax(0, 1fr) 36px; } .hb.sp .sx { grid-column: 2 / -1; margin-top: -2px; } }
+.hb .sx { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hb .m90 { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--fg); }
+.hb.sp { padding: 2px 0; }
 .hb .hn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
 .hb .ht { position: relative; height: 16px; }
 .hb .ht i { position: absolute; left: 0; top: 2px; bottom: 2px; border-radius: 2px; }
@@ -212,6 +217,7 @@ footer { color: var(--muted); font-size: 12px; padding-block: 0 30px; }
         <a href="#coach">Coach view</a>
         <a href="#players">Players</a>
         <a href="#graphs">Graphs</a>
+        <a href="#speed90">90% speed</a>
         <a href="#acwr">ACWR</a>
         <a href="#speed">Speed &amp; HSY</a>
         <a href="#accels">Accels</a>
@@ -671,6 +677,51 @@ function viewGraphs() {
     <div class="chartbox">${gScores(DAY)}</div></section>`;
 }
 
+/* ---------- 90% of max speed ---------- */
+let SWEEK = null, SGROUP = 'All';
+function maxSpeed(n) {
+  const m = D.players[n] && D.players[n].max;
+  if (m) return m;
+  const v = LOG.filter(r => r[C.Athlete] === n).map(r => num(r[C['Top Speed']])).filter(v => v != null);
+  return v.length ? Math.max(...v) : null;
+}
+function viewSpeed90() {
+  const wkOrder = []; LOG.slice().sort((a, b) => new Date(b[C.Date]) - new Date(a[C.Date])).forEach(r => { if (!wkOrder.includes(r[C.Week])) wkOrder.push(r[C.Week]); });
+  if (!SWEEK || !wkOrder.includes(SWEEK)) SWEEK = wkOrder[0];
+  const wkRows = LOG.filter(r => r[C.Week] === SWEEK);
+  const wkEnd = new Date(Math.max(...wkRows.map(r => new Date(r[C.Date]))));
+  const names = Object.keys(D.players).filter(n => !isOff(n) && n !== 'Jeremiah Salem' && ['Skill', 'Mid', 'Big'].includes(D.players[n].g) && (SGROUP === 'All' || D.players[n].g === SGROUP));
+  const rows = names.map(n => {
+    const mx = maxSpeed(n); if (!mx) return null;
+    const ok = r => { const v = num(r[C['Top Speed']]); return v != null && v <= mx * 1.02; };  // GPS glitches above his best are left out
+    const mine = wkRows.filter(r => r[C.Athlete] === n && ok(r));
+    const best = mine.length ? Math.max(...mine.map(r => num(r[C['Top Speed']]))) : null;
+    const hits = LOG.filter(r => r[C.Athlete] === n && ok(r) && new Date(r[C.Date]) <= wkEnd && num(r[C['Top Speed']]) >= mx * 0.9).sort((a, b) => new Date(b[C.Date]) - new Date(a[C.Date]));
+    const last = hits[0] ? hits[0][C.Date] : null;
+    const days = last ? Math.round((wkEnd - new Date(last)) / 864e5) : null;
+    return { n, g: D.players[n].g, mx, best, pct: best ? best / mx * 100 : null, last, days, sessions: mine.length };
+  }).filter(Boolean).sort((a, b) => (a.pct ?? -1) - (b.pct ?? -1));
+  const withGps = rows.filter(r => r.best != null);
+  const hit = withGps.filter(r => r.pct >= 90).length;
+  const zone = p => p == null ? 'gray' : p >= 90 ? 'green' : p >= 85 ? 'yel2' : 'red';
+  const lo = 50, scale = p => Math.max(0, Math.min(100, (p - lo) / (100 - lo) * 100));
+  const seg = (attr, cur, opts) => `<div class="seg" role="group">${opts.map(([v, l]) => `<button type="button" data-${attr}="${v}" aria-pressed="${v === cur}">${l}</button>`).join('')}</div>`;
+  const bars = rows.map(r => `<a class="hb sp" href="#players" data-player="${esc(r.n)}"><span class="hn">${esc(r.n)}</span>
+    <span class="ht">${r.pct != null ? `<i style="width:${scale(r.pct)}%;background:var(--z-${zone(r.pct)})"></i>` : ''}<span class="m90" style="left:${scale(90)}%"></span></span>
+    <b>${r.pct != null ? Math.floor(r.pct) + '%' : '–'}</b>
+    <span class="sx">${r.best != null ? `${fmt1(r.best)} of ${fmt1(r.mx)} mph` : 'No GPS this week'}${r.pct != null && r.pct >= 90 ? '' : r.last ? ` · last hit 90% ${r.last.slice(0, 5)} (${r.days} days)` : ' · no 90% this season'}</span></a>`).join('');
+  const notHit = withGps.filter(r => r.pct < 90).length;
+  return `<div class="toolbar"><label for="swk">Week</label><select id="swk">${wkOrder.map(w => `<option ${w === SWEEK ? 'selected' : ''}>${esc(w)}</option>`).join('')}</select></div>
+  <div class="toolbar"><label>Show</label>${seg('sgroup', SGROUP, [['Big', 'Bigs'], ['Mid', 'Mids'], ['Skill', 'Skills'], ['All', 'Whole team']])}</div>
+  <div class="kpis kpi3">
+    <div class="kpi"><div class="eyebrow">Hit 90% this week</div><div class="v">${hit}<small>of ${withGps.length}</small></div><div class="d">players with GPS in ${esc(String(SWEEK).replace(/^\d{2}\/\d{2}\s*/, ''))} week</div></div>
+    <div class="kpi"><div class="eyebrow">Still under 90%</div><div class="v ${notHit ? 'up' : ''}">${notHit}</div><div class="d">${wkRows.some(r => String(r[C.Session]).startsWith('GAME')) ? 'week finished' : 'week still in progress'}</div></div>
+    <div class="kpi"><div class="eyebrow">Team avg % of max</div><div class="v">${withGps.length ? Math.round(withGps.reduce((a, r) => a + r.pct, 0) / withGps.length) : '–'}<small>%</small></div><div class="d">fastest session this week vs his max</div></div>
+  </div>
+  <section class="card"><div class="ch"><h2>90% of max speed: ${esc(SWEEK)}</h2><div class="sub">Each player's fastest session that week as a % of his max speed. The black line marks 90%. Green = hit 90%, yellow = 85-89%, red = under 85%. Lowest first. QB Salem and out-for-season players are left out. Tap a name to open his page.</div></div>
+    <div class="chartbox"><div class="hbars">${bars}<div class="hb sp hax"><span class="hn"></span><span class="ht">${[50, 60, 70, 80, 90, 100].map(v => `<em style="left:${scale(v)}%">${v}%</em>`).join('')}</span><b></b><span class="sx"></span></div></div></div></section>`;
+}
+
 /* ---------- player page ---------- */
 const METRICS = [['Distance', 'Yards', fmt0], ['High-Speed Yards', 'HSY', fmt0], ['Player Load', 'Player Load', fmt1], ['Top Speed', 'Top speed', fmt1], ['Load score', 'Load score', fmt1], ['Accels + decels', 'Accels + decels', fmt0]];
 function playerOptions() {
@@ -760,7 +811,7 @@ function viewPlayers() {
 }
 
 /* ---------- routing ---------- */
-const VIEWS = { coach: viewCoach, football: viewFootball, players: viewPlayers, graphs: viewGraphs, acwr: viewACWR, speed: viewSpeed, accels: viewAccels };
+const VIEWS = { coach: viewCoach, football: viewFootball, players: viewPlayers, graphs: viewGraphs, speed90: viewSpeed90, acwr: viewACWR, speed: viewSpeed, accels: viewAccels };
 function route() {
   if (!D) return;
   let v = location.hash.replace('#', '');
@@ -779,14 +830,16 @@ function start() {
 }
 window.addEventListener('hashchange', () => { route(); window.scrollTo(0, 0); });
 document.addEventListener('change', e => {
+  if (e.target.id === 'swk') { SWEEK = e.target.value; route(); return; }
   if (e.target.id === 'gpadd' && e.target.value) { GPLAYERS.push(e.target.value); if (GPLAYERS.length === 1 && GLINES === 'all') GLINES = 'all'; const y = window.scrollY; route(); window.scrollTo(0, y); return; }
   if (e.target.matches('[data-day]')) { DAY = e.target.value; route(); }
   if (e.target.id === 'psel') { PLAYER = e.target.value; route(); }
 });
 document.addEventListener('click', e => {
-  const t = e.target.closest('[data-gprem],[data-glines],[data-grange],[data-gsess],[data-ggroup],[data-lsgroup],[data-step],[data-player],[data-metric],[data-acwr],[data-showmore],[data-jump]');
+  const t = e.target.closest('[data-sgroup],[data-gprem],[data-glines],[data-grange],[data-gsess],[data-ggroup],[data-lsgroup],[data-step],[data-player],[data-metric],[data-acwr],[data-showmore],[data-jump]');
   if (!t) return;
-  if (t.dataset.gprem) { GPLAYERS = GPLAYERS.filter(n => n !== t.dataset.gprem); if (!GPLAYERS.length && GLINES === 'none') GLINES = 'all'; const y = window.scrollY; route(); window.scrollTo(0, y); }
+  if (t.dataset.sgroup) { SGROUP = t.dataset.sgroup; const y = window.scrollY; route(); window.scrollTo(0, y); }
+  else if (t.dataset.gprem) { GPLAYERS = GPLAYERS.filter(n => n !== t.dataset.gprem); if (!GPLAYERS.length && GLINES === 'none') GLINES = 'all'; const y = window.scrollY; route(); window.scrollTo(0, y); }
   else if (t.dataset.glines || t.dataset.grange || t.dataset.gsess || t.dataset.ggroup) { if (t.dataset.glines) GLINES = t.dataset.glines; if (t.dataset.grange) GRANGE = t.dataset.grange; if (t.dataset.gsess) GSESS = t.dataset.gsess; if (t.dataset.ggroup) GGROUP = t.dataset.ggroup; const y = window.scrollY; route(); window.scrollTo(0, y); }
   else if (t.dataset.lsgroup) { LSGROUP = t.dataset.lsgroup; const y = window.scrollY; route(); window.scrollTo(0, y); }
   else if (t.dataset.step) { const sel = $('[data-day]'); const i = sel.selectedIndex + (+t.dataset.step); if (i >= 0 && i < sel.options.length) { DAY = sel.options[i].value; route(); } }
