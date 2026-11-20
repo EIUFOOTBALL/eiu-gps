@@ -606,15 +606,15 @@ function gLine(days, col, f) {
 function gWeekly(weeks, col, f) {
   const narrow = window.innerWidth < 640;
   const W = narrow ? 520 : 1000, H = narrow ? 300 : 280, L = 54, R = 10, T = 14, B = 48;
-  const groups = GSER().slice(1);
+  const groups = wkSeries();
   // per week: average per player of his weekly total (sum metrics) or of his sessions (speed, score)
   const val = (wk, g) => {
-    const rs = LOG.filter(r => r[C.Week] === wk && r[C.Group] === g && !isOff(r[C.Athlete]) && sessOK(r));
+    const rs = LOG.filter(r => r[C.Week] === wk && (g.p ? r[C.Athlete] === g.p : (!g.g || r[C.Group] === g.g) && ['Skill', 'Mid', 'Big'].includes(r[C.Group]) && !isOff(r[C.Athlete])) && sessOK(r));
     const by = new Map(); rs.forEach(r => { const v = num(r[C[col]]); if (v == null) return; if (!by.has(r[C.Athlete])) by.set(r[C.Athlete], []); by.get(r[C.Athlete]).push(v); });
     const per = [...by.values()].map(a => col === 'Top Speed' ? Math.max(...a) : SUMS.has(col) ? a.reduce((x, y) => x + y, 0) : a.reduce((x, y) => x + y, 0) / a.length);
     return per.length ? per.reduce((a, b) => a + b, 0) / per.length : null;
   };
-  const data = weeks.map(w => groups.map(g => val(w, g.g)));
+  const data = weeks.map(w => groups.map(g => val(w, g)));
   const mx = Math.max(1, ...data.flat().filter(v => v != null));
   const st = niceStep(mx / 4), top = Math.ceil(mx / st) * st;
   const y = v => T + (H - T - B) * (1 - v / top);
@@ -624,11 +624,17 @@ function gWeekly(weeks, col, f) {
   weeks.forEach((w, i) => {
     const x0 = L + i * gw + gw * 0.11;
     groups.forEach((g, j) => { const v = data[i][j]; if (v == null) return;
-      s += `<rect x="${x0 + j * bw}" y="${y(v)}" width="${Math.max(1, bw - 1)}" height="${y(0) - y(v)}" fill="${g.c}" rx="1.5"><title>${esc(w)} · ${g.n}: ${f(v)}</title></rect>`; });
+      s += `<rect x="${x0 + j * bw}" y="${y(v)}" width="${Math.max(1, bw - 1)}" height="${y(0) - y(v)}" fill="${g.c}" rx="1.5"><title>${esc(w)} · ${g.n}: ${f(v)}</title></rect>`;
+      if (g.p && bw >= 14) s += `<text class="dl" x="${x0 + j * bw + bw / 2}" y="${y(v) - 5}" text-anchor="middle" style="fill:${g.c}">${f(v)}</text>`; });
     const lab = String(w).replace(/^(\d{2}\/\d{2})\s*/, '');
     if (weeks.length <= 8 || i % Math.ceil(weeks.length / (narrow ? 4 : 8)) === 0) s += `<text x="${L + i * gw + gw / 2}" y="${H - 28}" text-anchor="middle">${esc(String(w).slice(0, 5))}</text><text x="${L + i * gw + gw / 2}" y="${H - 14}" text-anchor="middle">${esc(lab.length > 14 ? lab.slice(0, 13) + '…' : lab)}</text>`;
   });
+  if (col === 'High-Speed Yards' && SUMS.has(col) && top >= 30) s += `<line x1="${L}" x2="${W - R}" y1="${y(30)}" y2="${y(30)}" stroke="var(--f-red2-bg)" stroke-width="2" stroke-dasharray="5 4"/><text class="dl" x="${L + 4}" y="${y(30) - 5}" text-anchor="start" style="fill:var(--f-red2-bg)">30-yd min</text>`;
   return s + '</svg>';
+}
+// weekly chart series: same Lines + Players picks as the line chart
+function wkSeries() {
+  return GSER().filter(x => GLINES === 'all' ? x.g : x.n === GLINES).concat(GPLAYERS.map((n, i) => ({ n, p: n, c: PCOL[i] })));
 }
 function gScores(key) {
   const d = DATES.find(x => dkey(x) === key); if (!d) return '';
@@ -658,8 +664,8 @@ function viewGraphs() {
   <section class="card"><div class="ch"><h2>${esc(mdef[1])}: average per player each GPS day</h2><div class="sub">${GLINES === 'none' ? 'Selected players' : 'Team and position group averages'}${GPLAYERS.length && GLINES !== 'none' ? ' plus selected players (dashed)' : ''} for ${rangeTxt}. Out-for-season players are left out. ${days.length > 31 ? 'Hover or tap a point for the number (numbers show on the dots for shorter ranges).' : GLINES === 'all' && days.length > 8 ? 'Numbers are on the Team line; pick one line to see its numbers.' : 'Each dot shows that day\'s average.'}</div></div><div class="toolbar" style="padding:4px 14px 6px"><label>Lines</label>${seg('glines', GLINES, [['all', 'All'], ['Team', 'Whole team'], ['Skills', 'Skills'], ['Mids', 'Mids'], ['Bigs', 'Bigs']].concat(GPLAYERS.length ? [['none', 'Players only']] : []))}</div>
     <div class="toolbar" style="padding:0 14px 6px"><label for="gpadd">Players</label>${GPLAYERS.length < 4 ? `<select id="gpadd"><option value="">Add a player…</option>${playerOptionsFor(GPLAYERS)}</select>` : '<span class="note">Up to 4 players at once.</span>'}
       ${GPLAYERS.map((n, i) => `<button type="button" class="pchip" data-gprem="${esc(n)}" style="border-color:${PCOL[i]}" aria-label="Remove ${esc(n)}"><i style="background:${PCOL[i]}"></i>${esc(n)} ×</button>`).join('')}</div>${leg}<div class="chartbox">${gLine(days, mdef[0], mdef[2])}</div></section>
-  <section class="card"><div class="ch"><h2>${esc(mdef[1])}: ${METRIC === 'Top Speed' ? 'best per player' : SUMS.has(METRIC) ? 'weekly total per player' : 'average per player'} by week</h2><div class="sub">${METRIC === 'Top Speed' ? "Each player's fastest session that week, averaged across the group." : SUMS.has(METRIC) ? "Each player's total for the week, averaged across the group. The current week is only partway through." : 'Averaged across the group.'}</div></div>
-    <div class="chartleg">${GSER().slice(1).map(s => `<span><i style="background:${s.c}"></i>${s.n}</span>`).join('')}</div><div class="chartbox">${gWeekly(weeks, mdef[0], mdef[2])}</div></section>
+  <section class="card"><div class="ch"><h2>${esc(mdef[1])}: ${METRIC === 'Top Speed' ? 'best per player' : SUMS.has(METRIC) ? 'weekly total per player' : 'average per player'} by week</h2><div class="sub">${METRIC === 'Top Speed' ? "Each player's fastest session that week, averaged across the group." : SUMS.has(METRIC) ? "Each player's total for the week, averaged across the group. The current week is only partway through." : 'Averaged across the group.'} Shows the same lines and players you picked above.${METRIC === 'High-Speed Yards' ? ' Dashed red line = the 30-yard weekly minimum for Skills and Mids.' : ''}</div></div>
+    <div class="chartleg">${wkSeries().map(s => `<span><i style="background:${s.c}"></i>${esc(s.n)}</span>`).join('')}</div><div class="chartbox">${gWeekly(weeks, mdef[0], mdef[2])}</div></section>
   <section class="card"><div class="ch"><h2>Load score by player</h2><div class="sub">Every player's 1-10 load score on the day you pick, highest first. The shaded band is 5-7. Tap a name to open his page.</div></div>
     <div class="toolbar" style="padding:4px 14px 0">${dayPicker(D.coach.map(c => c.key), 'gday').replace(/^<div class="toolbar">|<\/div>$/g, '')}${seg('ggroup', GGROUP, [['Big', 'Bigs'], ['Mid', 'Mids'], ['Skill', 'Skills'], ['All', 'Whole team']])}</div>
     <div class="chartbox">${gScores(DAY)}</div></section>`;
