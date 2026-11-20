@@ -179,6 +179,8 @@ ol.leaders b { font-family: var(--display); font-size: 22px; font-variant-numeri
 .hax .ht { height: 18px; border-top: 1px solid var(--line); }
 .hax em { position: absolute; top: 2px; transform: translateX(-50%); font-style: normal; font-size: 11px; color: var(--muted); }
 svg.chart.n text { font-size: 15px; }
+svg.chart text.dl { font-size: 11px; font-weight: 700; paint-order: stroke; stroke: var(--surface); stroke-width: 3px; }
+svg.chart.n text.dl { font-size: 14px; }
 footer { color: var(--muted); font-size: 12px; padding-block: 0 30px; }
 @media (max-width: 520px) { .dayhead h1 { font-size: 26px; } .brand small { display: none; } }
 @media (prefers-reduced-motion: no-preference) { .view { animation: fade .18s ease-out; } @keyframes fade { from { opacity: .4 } to { opacity: 1 } } }
@@ -567,20 +569,20 @@ function viewReport() {
 }
 
 /* ---------- graphs ---------- */
-let GRANGE = '4w', GSESS = 'all', GGROUP = 'All';
+let GRANGE = '4w', GSESS = 'all', GGROUP = 'All', GLINES = 'all';
 const SUMS = new Set(['Distance', 'High-Speed Yards', 'Player Load', 'Accels + decels']);
 const GSER = () => [{ n: 'Team', g: null, c: 'var(--fg)' }, { n: 'Skills', g: 'Skill', c: 'var(--accent)' }, { n: 'Mids', g: 'Mid', c: 'var(--avg)' }, { n: 'Bigs', g: 'Big', c: 'var(--prac)' }];
 const sessOK = r => GSESS === 'all' || (GSESS === 'games') === String(r[C.Session]).startsWith('GAME');
 function gLine(days, col, f) {
   const narrow = window.innerWidth < 640;
   const W = narrow ? 520 : 1000, H = narrow ? 300 : 280, L = 50, R = 14, T = 14, B = 34;
-  const ser = GSER();
+  const ser = GSER().filter(x => GLINES === 'all' || x.n === GLINES);
   const val = (d, g) => avgOf(dayRows(d, g).filter(sessOK), col);
   const all = ser.flatMap(s => days.map(d => val(d, s.g))).filter(v => v != null);
   if (!all.length) return '<div class="empty">No sessions in this range.</div>';
   let lo = Math.min(...all), hi = Math.max(...all); const pad = (hi - lo) * 0.12 || hi * 0.1 || 1; lo = Math.max(0, lo - pad); hi += pad;
   const st = niceStep((hi - lo) / 4); lo = Math.floor(lo / st) * st; hi = Math.ceil(hi / st) * st;
-  const x = i => days.length === 1 ? (L + W - R) / 2 : L + (W - L - R) * i / (days.length - 1);
+  const x = i => days.length === 1 ? (L + W - R) / 2 : L + 24 + (W - L - R - 48) * i / (days.length - 1);
   const y = v => T + (H - T - B) * (1 - (v - lo) / (hi - lo));
   let s = `<svg class="chart${narrow ? ' n' : ''}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(col)} averages by GPS day">`;
   days.forEach((d, i) => { if (games.has(d)) s += `<rect x="${x(i) - 7}" y="${T}" width="14" height="${H - T - B}" fill="var(--surface-2)"/>`; });
@@ -590,8 +592,11 @@ function gLine(days, col, f) {
   ser.forEach(se => {
     const pts = days.map((d, i) => [x(i), val(d, se.g), d]).filter(p => p[1] != null);
     if (pts.length > 1) s += `<polyline points="${pts.map(p => `${p[0]},${y(p[1])}`).join(' ')}" fill="none" stroke="${se.c}" stroke-width="${se.g ? 2 : 3}" stroke-linejoin="round"/>`;
-    if (days.length <= 20) pts.forEach(p => s += `<circle cx="${p[0]}" cy="${y(p[1])}" r="3" fill="${se.c}"><title>${se.n} ${p[2].slice(0, 5)}: ${f(p[1])}</title></circle>`);
-    else pts.forEach(p => s += `<circle cx="${p[0]}" cy="${y(p[1])}" r="6" fill="transparent"><title>${se.n} ${p[2].slice(0, 5)}: ${f(p[1])}</title></circle>`);
+    // number on every dot (all lines when few days or one line picked; otherwise the Team line)
+    const labelThis = GLINES !== 'all' || days.length <= 8 || !se.g;
+    if (days.length <= 31) pts.forEach(p => { s += `<circle cx="${p[0]}" cy="${y(p[1])}" r="3.5" fill="${se.c}"><title>${se.n} ${p[2].slice(0, 5)}: ${f(p[1])}</title></circle>`;
+      if (labelThis) s += `<text class="dl" x="${p[0]}" y="${y(p[1]) - 8}" text-anchor="middle" style="fill:${se.c}">${f(p[1])}</text>`; });
+    if (days.length > 31) pts.forEach(p => s += `<circle cx="${p[0]}" cy="${y(p[1])}" r="6" fill="transparent"><title>${se.n} ${p[2].slice(0, 5)}: ${f(p[1])}</title></circle>`);
   });
   return s + '</svg>';
 }
@@ -643,7 +648,7 @@ function viewGraphs() {
   const rangeTxt = { week: 'this week', '4w': 'the last 4 weeks', season: 'the season' }[GRANGE];
   return `<div class="toolbar"><label>Metric</label>${seg('metric', METRIC, METRICS.map(m => [m[0], m[1]]))}</div>
   <div class="toolbar"><label>Range</label>${seg('grange', GRANGE, [['week', 'This week'], ['4w', 'Last 4 weeks'], ['season', 'Season']])}<label>Sessions</label>${seg('gsess', GSESS, [['all', 'All'], ['practices', 'Practices'], ['games', 'Games']])}</div>
-  <section class="card"><div class="ch"><h2>${esc(mdef[1])}: average per player each GPS day</h2><div class="sub">Team and position group averages for ${rangeTxt}. Out-for-season players are left out. Hover or tap a point for the number.</div></div>${leg}<div class="chartbox">${gLine(days, mdef[0], mdef[2])}</div></section>
+  <section class="card"><div class="ch"><h2>${esc(mdef[1])}: average per player each GPS day</h2><div class="sub">Team and position group averages for ${rangeTxt}. Out-for-season players are left out. ${days.length > 31 ? 'Hover or tap a point for the number (numbers show on the dots for shorter ranges).' : GLINES === 'all' && days.length > 8 ? 'Numbers are on the Team line; pick one line to see its numbers.' : 'Each dot shows that day\'s average.'}</div></div><div class="toolbar" style="padding:4px 14px 6px"><label>Lines</label>${seg('glines', GLINES, [['all', 'All'], ['Team', 'Whole team'], ['Skills', 'Skills'], ['Mids', 'Mids'], ['Bigs', 'Bigs']])}</div>${leg}<div class="chartbox">${gLine(days, mdef[0], mdef[2])}</div></section>
   <section class="card"><div class="ch"><h2>${esc(mdef[1])}: ${METRIC === 'Top Speed' ? 'best per player' : SUMS.has(METRIC) ? 'weekly total per player' : 'average per player'} by week</h2><div class="sub">${METRIC === 'Top Speed' ? "Each player's fastest session that week, averaged across the group." : SUMS.has(METRIC) ? "Each player's total for the week, averaged across the group. The current week is only partway through." : 'Averaged across the group.'}</div></div>
     <div class="chartleg">${GSER().slice(1).map(s => `<span><i style="background:${s.c}"></i>${s.n}</span>`).join('')}</div><div class="chartbox">${gWeekly(weeks, mdef[0], mdef[2])}</div></section>
   <section class="card"><div class="ch"><h2>Load score by player</h2><div class="sub">Every player's 1-10 load score on the day you pick, highest first. The shaded band is 5-7. Tap a name to open his page.</div></div>
@@ -763,9 +768,9 @@ document.addEventListener('change', e => {
   if (e.target.id === 'psel') { PLAYER = e.target.value; route(); }
 });
 document.addEventListener('click', e => {
-  const t = e.target.closest('[data-grange],[data-gsess],[data-ggroup],[data-lsgroup],[data-step],[data-player],[data-metric],[data-acwr],[data-showmore],[data-jump]');
+  const t = e.target.closest('[data-glines],[data-grange],[data-gsess],[data-ggroup],[data-lsgroup],[data-step],[data-player],[data-metric],[data-acwr],[data-showmore],[data-jump]');
   if (!t) return;
-  if (t.dataset.grange || t.dataset.gsess || t.dataset.ggroup) { if (t.dataset.grange) GRANGE = t.dataset.grange; if (t.dataset.gsess) GSESS = t.dataset.gsess; if (t.dataset.ggroup) GGROUP = t.dataset.ggroup; const y = window.scrollY; route(); window.scrollTo(0, y); }
+  if (t.dataset.glines || t.dataset.grange || t.dataset.gsess || t.dataset.ggroup) { if (t.dataset.glines) GLINES = t.dataset.glines; if (t.dataset.grange) GRANGE = t.dataset.grange; if (t.dataset.gsess) GSESS = t.dataset.gsess; if (t.dataset.ggroup) GGROUP = t.dataset.ggroup; const y = window.scrollY; route(); window.scrollTo(0, y); }
   else if (t.dataset.lsgroup) { LSGROUP = t.dataset.lsgroup; const y = window.scrollY; route(); window.scrollTo(0, y); }
   else if (t.dataset.step) { const sel = $('[data-day]'); const i = sel.selectedIndex + (+t.dataset.step); if (i >= 0 && i < sel.options.length) { DAY = sel.options[i].value; route(); } }
   else if (t.dataset.player) { e.preventDefault(); PLAYER = t.dataset.player; if (location.hash === '#players') route(); else location.hash = 'players'; }
